@@ -1,3 +1,4 @@
+'use client'
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/input"
@@ -5,9 +6,157 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
-import { FileText, Copy, Download } from "lucide-react"
+import { FileText, Copy, Download, Loader2, ExternalLink } from "lucide-react"
+import { useState, useEffect } from "react"
+import { toast } from "sonner"
+
+// Define types for our data
+interface Sponsor {
+  name: string;
+  description: string;
+  website: string;
+}
+
+interface TemplateResponse {
+  success: boolean;
+  message: string;
+  template_path?: string;
+  template_content?: string;
+  template_paths?: string[];
+}
 
 export default function GenerateTemplates() {
+  // State for sponsor email template
+  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
+  const [selectedSponsor, setSelectedSponsor] = useState<string>("");
+  const [selectedSponsorData, setSelectedSponsorData] = useState<Sponsor | null>(null);
+  const [clubDescription, setClubDescription] = useState<string>("");
+  const [universityDescription, setUniversityDescription] = useState<string>("");
+  const [userName, setUserName] = useState<string>("");
+  const [userPosition, setUserPosition] = useState<string>("");
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [userPhone, setUserPhone] = useState<string>("");
+  const [teamWebsite, setTeamWebsite] = useState<string>("");
+  const [teamMission, setTeamMission] = useState<string>("");
+  const [specificAspect, setSpecificAspect] = useState<string>("");
+  const [additionalBenefits, setAdditionalBenefits] = useState<string>("");
+  const [generatedTemplate, setGeneratedTemplate] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<string>("email");
+  
+  // State for essay template
+  const [selectedScholarship, setSelectedScholarship] = useState<string>("");
+  
+  // Scholarship descriptions
+  const scholarshipDescriptions: Record<string, string> = {
+    "sae": "The SAE International Scholarship supports students participating in Formula SAE competitions. This scholarship recognizes academic excellence, leadership, and innovation in automotive engineering.",
+    "automotive": "The Automotive Engineering Excellence Award celebrates outstanding achievements in automotive engineering. Recipients demonstrate exceptional technical skills and a passion for advancing the automotive industry.",
+    "leadership": "The Engineering Leadership Scholarship honors students who have shown exceptional leadership within their engineering teams. This scholarship recognizes those who inspire others and drive innovation in engineering projects."
+  };
+
+  // Fetch sponsors on component mount
+  useEffect(() => {
+    const fetchSponsors = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/sponsors');
+        const data = await response.json();
+        
+        if (data.success) {
+          setSponsors(data.sponsors);
+        } else {
+          toast.error("Failed to load sponsors");
+        }
+      } catch (error) {
+        console.error("Error fetching sponsors:", error);
+        toast.error("Error loading sponsors");
+      }
+    };
+
+    fetchSponsors();
+  }, []);
+
+  // Update selected sponsor data when selection changes
+  useEffect(() => {
+    if (selectedSponsor && selectedSponsor !== "all") {
+      const sponsor = sponsors.find(s => s.name === selectedSponsor);
+      setSelectedSponsorData(sponsor || null);
+    } else {
+      setSelectedSponsorData(null);
+    }
+  }, [selectedSponsor, sponsors]);
+
+  // Handle template generation
+  const handleGenerateTemplate = async () => {
+    setIsLoading(true);
+    
+    try {
+      // Prepare the request payload
+      const payload = {
+        sponsor_name: selectedSponsor === "all" ? "" : selectedSponsor,
+        club_description: clubDescription,
+        university_description: universityDescription,
+        user_name: userName,
+        user_position: userPosition,
+        user_email: userEmail,
+        user_phone: userPhone,
+        team_website: teamWebsite,
+        team_mission: teamMission,
+        specific_aspect: specificAspect,
+        additional_benefits: additionalBenefits.split('\n').filter(benefit => benefit.trim() !== ''),
+        // Add scholarship information if a scholarship is selected
+        scholarship_name: selectedScholarship || "",
+        scholarship_description: selectedScholarship ? scholarshipDescriptions[selectedScholarship] : ""
+      };
+
+      // Make the API request
+      const response = await fetch('http://localhost:5000/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data: TemplateResponse = await response.json();
+      
+      if (data.success) {
+        if (data.template_content) {
+          setGeneratedTemplate(data.template_content);
+          toast.success("Template generated successfully!");
+        } else {
+          toast.success(`Generated ${data.template_paths?.length || 0} templates`);
+        }
+      } else {
+        toast.error(data.message || "Failed to generate template");
+      }
+    } catch (error) {
+      console.error("Error generating template:", error);
+      toast.error("Error generating template");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle copying template to clipboard
+  const handleCopyTemplate = () => {
+    navigator.clipboard.writeText(generatedTemplate);
+    toast.success("Template copied to clipboard");
+  };
+
+  // Handle downloading template
+  const handleDownloadTemplate = () => {
+    const blob = new Blob([generatedTemplate], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sponsor_email_template_${selectedSponsor || 'all'}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Template downloaded");
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col items-center text-center mb-8">
@@ -18,7 +167,7 @@ export default function GenerateTemplates() {
       </div>
 
       <div className="max-w-4xl mx-auto">
-        <Tabs defaultValue="email" className="mb-8">
+        <Tabs defaultValue="email" className="mb-8" onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="email">Email Template</TabsTrigger>
             <TabsTrigger value="essay">Essay Template</TabsTrigger>
@@ -27,15 +176,223 @@ export default function GenerateTemplates() {
           <TabsContent value="email" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Email Template Generator</CardTitle>
+                <CardTitle>Sponsor Email Template Generator</CardTitle>
                 <CardDescription>
-                  Create a personalized email to send with your scholarship application.
+                  Create a personalized email to send to potential sponsors.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="sponsor">Select Sponsor</Label>
+                  <Select value={selectedSponsor} onValueChange={setSelectedSponsor}>
+                    <SelectTrigger id="sponsor">
+                      <SelectValue placeholder="Select a sponsor (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sponsors</SelectItem>
+                      {sponsors.map((sponsor, index) => (
+                        <SelectItem key={index} value={sponsor.name}>
+                          {sponsor.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedSponsorData && (
+                  <Card className="mt-4 border border-primary/20">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg">Sponsor Details</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        {selectedSponsorData.description}
+                      </p>
+                      {selectedSponsorData.website && (
+                        <div className="flex items-center mt-2">
+                          <a 
+                            href={selectedSponsorData.website} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-sm text-primary hover:underline flex items-center"
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            Visit Website
+                          </a>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="clubDescription">Club Description</Label>
+                  <Textarea
+                    id="clubDescription"
+                    placeholder="Describe your Formula Racing team"
+                    className="min-h-[100px]"
+                    value={clubDescription}
+                    onChange={(e) => setClubDescription(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="universityDescription">University Description</Label>
+                  <Textarea
+                    id="universityDescription"
+                    placeholder="Describe the University of Cincinnati"
+                    className="min-h-[100px]"
+                    value={universityDescription}
+                    onChange={(e) => setUniversityDescription(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="userName">Your Name</Label>
+                  <Input 
+                    id="userName" 
+                    placeholder="Enter your full name" 
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="userPosition">Your Position</Label>
+                  <Input 
+                    id="userPosition" 
+                    placeholder="Enter your position in the team" 
+                    value={userPosition}
+                    onChange={(e) => setUserPosition(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="userEmail">Your Email</Label>
+                  <Input 
+                    id="userEmail" 
+                    placeholder="Enter your email address" 
+                    value={userEmail}
+                    onChange={(e) => setUserEmail(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="userPhone">Your Phone</Label>
+                  <Input 
+                    id="userPhone" 
+                    placeholder="Enter your phone number" 
+                    value={userPhone}
+                    onChange={(e) => setUserPhone(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="teamWebsite">Team Website</Label>
+                  <Input 
+                    id="teamWebsite" 
+                    placeholder="Enter your team website" 
+                    value={teamWebsite}
+                    onChange={(e) => setTeamWebsite(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="teamMission">Team Mission</Label>
+                  <Input 
+                    id="teamMission" 
+                    placeholder="Enter your team mission" 
+                    value={teamMission}
+                    onChange={(e) => setTeamMission(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="specificAspect">Specific Aspect</Label>
+                  <Input 
+                    id="specificAspect" 
+                    placeholder="Enter a specific aspect of the company that aligns with your team" 
+                    value={specificAspect}
+                    onChange={(e) => setSpecificAspect(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="additionalBenefits">Additional Benefits (one per line)</Label>
+                  <Textarea
+                    id="additionalBenefits"
+                    placeholder="Enter additional benefits for the sponsor (one per line)"
+                    className="min-h-[100px]"
+                    value={additionalBenefits}
+                    onChange={(e) => setAdditionalBenefits(e.target.value)}
+                  />
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button 
+                  className="w-full" 
+                  onClick={handleGenerateTemplate}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Generate Email {selectedScholarship ? `for ${selectedScholarship}` : ''}
+                    </>
+                  )}
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Generated Email</CardTitle>
+                <CardDescription>
+                  Your personalized email template is ready to use.
+                  {selectedScholarship && (
+                    <span className="block mt-1 text-primary">
+                      This template is tailored for the {selectedScholarship} scholarship.
+                    </span>
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Textarea
+                  readOnly
+                  className="min-h-[300px] font-mono text-sm"
+                  value={generatedTemplate || "This doesnt work right now"}
+                />
+              </CardContent>
+              <CardFooter className="flex justify-between">
+                <Button variant="outline" onClick={handleCopyTemplate} disabled={!generatedTemplate}>
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy to Clipboard
+                </Button>
+                <Button variant="outline" onClick={handleDownloadTemplate} disabled={!generatedTemplate}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+              </CardFooter>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="essay" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Essay Template Generator</CardTitle>
+                <CardDescription>
+                  Create a personalized essay for your scholarship application.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="scholarship">Scholarship</Label>
-                  <Select>
+                  <Select value={selectedScholarship} onValueChange={setSelectedScholarship}>
                     <SelectTrigger id="scholarship">
                       <SelectValue placeholder="Select a scholarship" />
                     </SelectTrigger>
@@ -46,6 +403,19 @@ export default function GenerateTemplates() {
                     </SelectContent>
                   </Select>
                 </div>
+                
+                {selectedScholarship && (
+                  <Card className="mt-4 border border-primary/20">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg">Scholarship Details</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">
+                        {scholarshipDescriptions[selectedScholarship]}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="name">Your Name</Label>
@@ -73,15 +443,15 @@ export default function GenerateTemplates() {
               <CardFooter>
                 <Button className="w-full">
                   <FileText className="h-4 w-4 mr-2" />
-                  Generate Email
+                  Generate Essay
                 </Button>
               </CardFooter>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Generated Email</CardTitle>
-                <CardDescription>Your personalized email template is ready to use.</CardDescription>
+                <CardTitle>Generated Essay</CardTitle>
+                <CardDescription>Your personalized essay template is ready to use.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Textarea
@@ -100,15 +470,12 @@ Some of my key achievements include:
 - [Achievement 2]
 - [Achievement 3]
 
-I am particularly passionate about [Specific area of interest], and I believe that receiving this scholarship would greatly support my educational and career goals in the automotive engineering field.
+I am particularly interested in this scholarship because [Reason for interest]. I believe that my experience with FSAE has prepared me well for [Future goals].
 
-Attached to this email, you will find my completed application form, resume, and academic transcripts as required. I would be happy to provide any additional information or documentation that may be needed for my application.
+Thank you for considering my application.
 
-Thank you for considering my application. I look forward to the opportunity to further discuss how my experience and goals align with the values of the SAE International Scholarship.
-
-Sincerely,
-[Your Name]
-[Contact Information]`}
+Best regards,
+[Your Name]`}
                 />
               </CardContent>
               <CardFooter className="flex justify-between">
@@ -116,105 +483,7 @@ Sincerely,
                   <Copy className="h-4 w-4 mr-2" />
                   Copy to Clipboard
                 </Button>
-                <Button>
-                  <Download className="h-4 w-4 mr-2" />
-                  Download
-                </Button>
-              </CardFooter>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="essay" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Essay Template Generator</CardTitle>
-                <CardDescription>Create a personalized essay for your scholarship application.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="essay-scholarship">Scholarship</Label>
-                  <Select>
-                    <SelectTrigger id="essay-scholarship">
-                      <SelectValue placeholder="Select a scholarship" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="sae">SAE International Scholarship</SelectItem>
-                      <SelectItem value="automotive">Automotive Engineering Excellence Award</SelectItem>
-                      <SelectItem value="leadership">Engineering Leadership Scholarship</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="essay-prompt">Essay Prompt</Label>
-                  <Input id="essay-prompt" placeholder="Enter the essay prompt or question" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="essay-experience">FSAE Experience</Label>
-                  <Textarea
-                    id="essay-experience"
-                    placeholder="Describe your FSAE experience in detail"
-                    className="min-h-[100px]"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="essay-achievements">Key Achievements</Label>
-                  <Textarea
-                    id="essay-achievements"
-                    placeholder="List your key achievements relevant to this scholarship"
-                    className="min-h-[100px]"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="essay-goals">Career Goals</Label>
-                  <Textarea
-                    id="essay-goals"
-                    placeholder="Describe your career goals and how this scholarship will help"
-                    className="min-h-[100px]"
-                  />
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Button className="w-full">
-                  <FileText className="h-4 w-4 mr-2" />
-                  Generate Essay
-                </Button>
-              </CardFooter>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Generated Essay</CardTitle>
-                <CardDescription>Your personalized essay template is ready to use.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Textarea
-                  readOnly
-                  className="min-h-[400px] font-mono text-sm"
-                  value={`The Impact of Formula SAE on My Engineering Journey
-
-My journey in engineering began with a simple fascination with how things work. As a child, I would disassemble toys and household appliances, eager to understand their inner workings. This curiosity evolved into a passion for automotive engineering when I joined my university's Formula SAE team during my freshman year.
-
-Formula SAE has been more than just an extracurricular activity for me—it has been a transformative experience that has shaped my academic path and professional aspirations. As [Your Role] on our team, I have had the opportunity to [specific responsibilities and experiences]. This hands-on experience has complemented my classroom learning in ways I never anticipated, allowing me to apply theoretical concepts to real-world engineering challenges.
-
-One of the most significant projects I contributed to was [specific project], where I [your contribution and its impact]. This experience taught me valuable lessons about [lessons learned], which I believe are essential skills for any engineer. The project resulted in [outcomes or achievements], demonstrating the practical impact of our team's collaborative efforts.
-
-Beyond technical skills, Formula SAE has cultivated my leadership abilities and teamwork. When faced with [specific challenge], I [how you addressed it], which resulted in [positive outcome]. This experience taught me that engineering is not just about technical solutions but also about effective communication and collaboration.
-
-My involvement in Formula SAE has solidified my career goal of [specific career goal]. I am particularly interested in [specific area of interest] because [reason for interest]. Receiving this scholarship would enable me to [how the scholarship would help], bringing me one step closer to achieving my professional aspirations in the automotive engineering field.
-
-In conclusion, Formula SAE has been the cornerstone of my engineering education, providing me with technical knowledge, practical experience, and professional skills that extend far beyond the classroom. I am committed to continuing this journey of growth and innovation, and I believe that with the support of this scholarship, I can make meaningful contributions to the field of automotive engineering.`}
-                />
-              </CardContent>
-              <CardFooter className="flex justify-between">
                 <Button variant="outline">
-                  <Copy className="h-4 w-4 mr-2" />
-                  Copy to Clipboard
-                </Button>
-                <Button>
                   <Download className="h-4 w-4 mr-2" />
                   Download
                 </Button>
