@@ -20,6 +20,17 @@ interface Scholarship {
   deadline?: string;
   amount?: string;
   appliedDate?: string;
+  analysis_date?: string;
+  user_info?: {
+    name: string;
+    position: string;
+    email: string;
+    phone: string;
+  };
+  team_info?: {
+    website: string;
+    mission: string;
+  };
 }
 
 // Local storage key for saving scholarship states
@@ -31,7 +42,7 @@ export default function TrackScholarships() {
   // State for search query
   const [searchQuery, setSearchQuery] = useState("");
   
-  // Load scholarships from potential_sponsors.json on component mount
+  // Load scholarships from MongoDB on component mount
   useEffect(() => {
     const loadScholarships = async () => {
       try {
@@ -39,21 +50,19 @@ export default function TrackScholarships() {
         const savedStates = localStorage.getItem(SCHOLARSHIP_STORAGE_KEY);
         const savedStatesObj = savedStates ? JSON.parse(savedStates) : {};
         
-        // Then fetch the scholarship data
-        const response = await fetch('/api/scholarships');
+        // Then fetch the scholarship data from MongoDB
+        const response = await fetch('/api/analyzed-sponsors');
         if (!response.ok) {
           throw new Error('Failed to fetch scholarships');
         }
         const data = await response.json();
         
-        // Ensure data is an array
-        if (!Array.isArray(data)) {
-          console.error('Expected array of scholarships, got:', typeof data);
-          return;
+        if (!data.success) {
+          throw new Error(data.message || 'Failed to fetch scholarships');
         }
         
         // Transform the data to include status
-        const transformedData = data.map((item: any, index: number) => {
+        const transformedData = data.analyzed_sponsors.map((item: any, index: number) => {
           const id = `scholarship-${index}`;
           // Use saved state if available, otherwise default to "saved"
           const savedState = savedStatesObj[id];
@@ -66,7 +75,10 @@ export default function TrackScholarships() {
             status: savedState?.status || "saved" as ScholarshipStatus,
             deadline: item.deadline || "Not specified",
             amount: item.amount || "Not specified",
-            appliedDate: savedState?.appliedDate || undefined
+            appliedDate: savedState?.appliedDate || undefined,
+            analysis_date: item.analysis_date,
+            user_info: item.user_info,
+            team_info: item.team_info
           };
         });
         
@@ -161,7 +173,7 @@ export default function TrackScholarships() {
                 onClick={() => updateScholarshipStatus(scholarship.id, "applied")}
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
-                Apply Now
+                Applied
               </Button>
               <Button 
                 size="sm"
@@ -258,10 +270,23 @@ export default function TrackScholarships() {
               <span>Applied: {scholarship.appliedDate}</span>
             </div>
           )}
+          {scholarship.analysis_date && (
+            <div className="flex items-center text-sm text-muted-foreground mb-2">
+              <Calendar className="h-4 w-4 mr-1" />
+              <span>Analyzed: {new Date(scholarship.analysis_date).toLocaleDateString()}</span>
+            </div>
+          )}
           <div className="flex items-center text-sm text-muted-foreground">
             <DollarSign className="h-4 w-4 mr-1" />
             <span>Amount: {scholarship.amount}</span>
           </div>
+          {scholarship.user_info && (
+            <div className="mt-2 text-sm text-muted-foreground">
+              <p>Contact: {scholarship.user_info.name} ({scholarship.user_info.position})</p>
+              <p>Email: {scholarship.user_info.email}</p>
+              <p>Phone: {scholarship.user_info.phone}</p>
+            </div>
+          )}
         </CardContent>
         <CardFooter className="flex justify-between pt-2">
           {getActionButtons()}
