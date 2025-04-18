@@ -3,7 +3,7 @@ from flask_cors import CORS
 import os 
 from dotenv import load_dotenv
 import psycopg2
-from scraper import search_potential_sponsors
+from sponsor_scraper import search_potential_sponsors
 from template_generator import (
     generate_template_for_specific_sponsor,
     generate_templates_for_all_sponsors,
@@ -14,10 +14,18 @@ load_dotenv()
 # load env 
 from pymongo import MongoClient
 import json
-
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
+
+# MongoDB connection
+MONGO_URI = os.getenv('MONGODB_URI')
+client = MongoClient(MONGO_URI)
+db = client['ber_scholarship_db']
+sponsors_collection = db['sponsors']
+analyzed_sponsors_collection = db['analyzed_sponsors']
+templates_collection = db['templates']  # New collection for templates
 
 @app.route('/api/hello', methods=['GET'])
 def hello():
@@ -27,6 +35,14 @@ def hello():
 def scrape():
     if request.method == 'GET':
         scraped_data = search_potential_sponsors()
+        # Save scraped data to MongoDB
+        for sponsor in scraped_data:
+            sponsor['created_at'] = datetime.utcnow()
+            sponsors_collection.update_one(
+                {'name': sponsor['name']},
+                {'$set': sponsor},
+                upsert=True
+            )
         return jsonify(scraped_data)
 
 @app.route('/api/generate', methods=['POST'])
@@ -69,6 +85,14 @@ def generate_template():
         # Check if a specific sponsor is requested
         sponsor_name = data.get('sponsor_name')
         
+        # Check if we have any sponsors in the database
+        sponsors_count = sponsors_collection.count_documents({})
+        if sponsors_count == 0:
+            return jsonify({
+                'success': False,
+                'message': 'No sponsors found in the database. Please run the scraper first to collect sponsor data.'
+            }), 404
+        
         if sponsor_name:
             # Generate template for a specific sponsor
             template_path = generate_template_for_specific_sponsor(
@@ -87,10 +111,40 @@ def generate_template():
             
             if template_path:
                 template_content = get_template_content(template_path)
+                
+                # Save template to MongoDB
+                template_data = {
+                    'sponsor_name': sponsor_name,
+                    'template_content': template_content,
+                    'created_at': datetime.utcnow(),
+                    'user_info': {
+                        'name': user_name,
+                        'position': user_position,
+                        'email': user_email,
+                        'phone': user_phone
+                    },
+                    'team_info': {
+                        'website': team_website,
+                        'mission': team_mission
+                    },
+                    'template_info': {
+                        'club_description': club_description,
+                        'university_description': university_description,
+                        'specific_aspect': specific_aspect,
+                        'additional_benefits': additional_benefits
+                    }
+                }
+                
+                # Update or insert template
+                templates_collection.update_one(
+                    {'sponsor_name': sponsor_name},
+                    {'$set': template_data},
+                    upsert=True
+                )
+                
                 return jsonify({
                     'success': True,
-                    'message': f'Template generated for {sponsor_name}',
-                    'template_path': template_path,
+                    'message': f'Template generated and saved for {sponsor_name}',
                     'template_content': template_content
                 })
             else:
@@ -113,10 +167,55 @@ def generate_template():
                 additional_benefits=additional_benefits
             )
             
+            if not template_paths:
+                return jsonify({
+                    'success': False,
+                    'message': 'No templates were generated. Make sure there are sponsors in the database.'
+                }), 404
+            
+            # Save all templates to MongoDB
+            saved_templates = []
+            for sponsor_name, template_path in template_paths.items():
+                template_content = get_template_content(template_path)
+                
+                template_data = {
+                    'sponsor_name': sponsor_name,
+                    'template_content': template_content,
+                    'created_at': datetime.utcnow(),
+                    'user_info': {
+                        'name': user_name,
+                        'position': user_position,
+                        'email': user_email,
+                        'phone': user_phone
+                    },
+                    'team_info': {
+                        'website': team_website,
+                        'mission': team_mission
+                    },
+                    'template_info': {
+                        'club_description': club_description,
+                        'university_description': university_description,
+                        'specific_aspect': specific_aspect,
+                        'additional_benefits': additional_benefits
+                    }
+                }
+                
+                # Update or insert template
+                templates_collection.update_one(
+                    {'sponsor_name': sponsor_name},
+                    {'$set': template_data},
+                    upsert=True
+                )
+                
+                saved_templates.append({
+                    'sponsor_name': sponsor_name,
+                    'template_content': template_content
+                })
+            
             return jsonify({
                 'success': True,
-                'message': f'Generated {len(template_paths)} templates',
-                'template_paths': template_paths
+                'message': f'Generated and saved {len(saved_templates)} templates',
+                'templates': saved_templates
             })
     
     except Exception as e:
@@ -125,24 +224,63 @@ def generate_template():
             'message': f'Error generating template: {str(e)}'
         }), 500
 
+@app.route('/api/templates', methods=['GET'])
+def get_templates():
+    """
+    Get all saved templates from MongoDB.
+    """
+    try:
+        templates = list(templates_collection.find({}, {'_id': 0}))
+        return jsonify({
+            'success': True,
+            'templates': templates
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error loading templates: {str(e)}'
+        }), 500
+
+@app.route('/api/templates/<sponsor_name>', methods=['GET'])
+def get_template(sponsor_name):
+    """
+    Get a specific template by sponsor name.
+    """
+    try:
+        template = templates_collection.find_one(
+            {'sponsor_name': sponsor_name},
+            {'_id': 0}
+        )
+        
+        if template:
+            return jsonify({
+                'success': True,
+                'template': template
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'Template not found for sponsor: {sponsor_name}'
+            }), 404
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error loading template: {str(e)}'
+        }), 500
+
 @app.route('/api/sponsors', methods=['GET'])
 def get_sponsors():
     """
-    Get a list of all available sponsors.
+    Get a list of all available sponsors from MongoDB.
     """
     try:
-        sponsors = load_sponsors_data()
-        
-        # Filter out entries that don't look like actual companies
-        filtered_sponsors = [
-            sponsor for sponsor in sponsors
-            if not ("reddit.com" in sponsor.get("name", "") or 
-                   "quora.com" in sponsor.get("name", ""))
-        ]
+        # Get all sponsors from MongoDB
+        sponsors = list(sponsors_collection.find({}, {'_id': 0}))
         
         # Extract relevant information
         sponsor_list = []
-        for sponsor in filtered_sponsors:
+        for sponsor in sponsors:
             name = sponsor.get("name", "Unknown Company")
             description = sponsor.get("description", "")
             website = sponsor.get("website", "")
@@ -162,6 +300,23 @@ def get_sponsors():
         return jsonify({
             'success': False,
             'message': f'Error loading sponsors: {str(e)}'
+        }), 500
+
+@app.route('/api/analyzed-sponsors', methods=['GET'])
+def get_analyzed_sponsors():
+    """
+    Get a list of all analyzed sponsors from MongoDB.
+    """
+    try:
+        analyzed_sponsors = list(analyzed_sponsors_collection.find({}, {'_id': 0}))
+        return jsonify({
+            'success': True,
+            'analyzed_sponsors': analyzed_sponsors
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error loading analyzed sponsors: {str(e)}'
         }), 500
 
 if __name__ == '__main__':
