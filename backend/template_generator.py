@@ -2,22 +2,34 @@ import json
 import os
 import re
 from typing import Dict, List, Optional, Tuple
+from pymongo import MongoClient
+from dotenv import load_dotenv
 
-def load_sponsors_data(file_path: str = "data/potential_sponsors.json") -> List[Dict]:
+# Load environment variables
+load_dotenv()
+
+# MongoDB connection
+MONGO_URI = os.getenv('MONGODB_URI')
+client = MongoClient(MONGO_URI)
+db = client['ber_scholarship_db']
+sponsors_collection = db['sponsors']
+
+def load_sponsors_data(file_path: str = None) -> List[Dict]:
     """
-    Load the potential sponsors data from the JSON file.
+    Load the potential sponsors data from MongoDB.
     
     Args:
-        file_path: Path to the JSON file containing sponsor data
+        file_path: Not used anymore, kept for backward compatibility
         
     Returns:
         List of sponsor dictionaries
     """
     try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            return json.load(file)
+        # Get all sponsors from MongoDB
+        sponsors = list(sponsors_collection.find({}, {'_id': 0}))
+        return sponsors
     except Exception as e:
-        print(f"Error loading sponsors data: {e}")
+        print(f"Error loading sponsors data from MongoDB: {e}")
         return []
 
 def clean_company_name(name: str) -> str:
@@ -166,7 +178,7 @@ def generate_templates_for_all_sponsors(
     specific_aspect: str = "[SPECIFIC_ASPECT]",
     additional_benefits: List[str] = None,
     output_dir: str = "email_templates"
-) -> List[str]:
+) -> Dict[str, str]:
     """
     Generate email templates for all sponsors in the data.
     
@@ -184,10 +196,10 @@ def generate_templates_for_all_sponsors(
         output_dir: Directory to save the templates
         
     Returns:
-        List of paths to the generated template files
+        Dictionary mapping sponsor names to template paths
     """
     sponsors = load_sponsors_data()
-    template_paths = []
+    template_paths = {}
     
     for sponsor in sponsors:
         company_name, description, email, website = extract_company_info(sponsor)
@@ -214,7 +226,7 @@ def generate_templates_for_all_sponsors(
             output_dir=output_dir
         )
         
-        template_paths.append(template_path)
+        template_paths[company_name] = template_path
     
     return template_paths
 
