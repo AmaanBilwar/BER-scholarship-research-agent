@@ -6,6 +6,11 @@ import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from dotenv import load_dotenv
+import pathlib
+
+# Get the absolute path to the backend directory
+BACKEND_DIR = pathlib.Path(__file__).parent.absolute()
+DATA_DIR = os.path.join(BACKEND_DIR, "data")
 
 load_dotenv()
 
@@ -172,11 +177,10 @@ def save_results(results):
     """
     Save the results to a JSON file.
     """
-    output_dir = "data"
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
     
-    output_file = os.path.join(output_dir, "potential_sponsors.json")
+    output_file = os.path.join(DATA_DIR, "potential_sponsors.json")
     
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
@@ -238,8 +242,7 @@ if __name__ == "__main__":
     potential_sponsors.sort(key=lambda x: x["fit_analysis"]["score"], reverse=True)
     
     # Save the analyzed results
-    output_dir = "data"
-    output_file = os.path.join(output_dir, "analyzed_sponsors.json")
+    output_file = os.path.join(DATA_DIR, "analyzed_sponsors.json")
     
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(potential_sponsors, f, indent=2)
